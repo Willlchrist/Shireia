@@ -1,0 +1,195 @@
+﻿diff --git a/src/common/fs/fs_paths.h b/src/common/fs/fs_paths.h
+index 9f49c5d066..66e9ba30b0 100644
+--- a/src/common/fs/fs_paths.h
++++ b/src/common/fs/fs_paths.h
+@@ -6,12 +6,12 @@
+ 
+ #pragma once
+ 
+-// yuzu data directories
++// Emulator data directories
+ 
+-#define EDEN_DIR "suyu"
++#define EDEN_DIR "Shireia"
+ #define PORTABLE_DIR "user"
+ 
+-// Sub-directories contained within a yuzu data directory
++// Sub-directories contained within an emulator data directory
+ #define AMIIBO_DIR "amiibo"
+ #define CACHE_DIR "cache"
+ #define CONFIG_DIR "config"
+@@ -36,5 +36,5 @@
+ #define SUYU_DIR "suyu"
+ #define RYUJINX_DIR "Ryujinx"
+ 
+-// yuzu-specific files
++// Legacy-compatible filenames
+ #define LOG_FILE "suyu_log.txt"
+diff --git a/src/common/fs/path_util.cpp b/src/common/fs/path_util.cpp
+index 9711c22176..dbabe1f373 100644
+--- a/src/common/fs/path_util.cpp
++++ b/src/common/fs/path_util.cpp
+@@ -112,6 +112,8 @@ public:
+         fs::path eden_path_cache;
+         fs::path eden_path_config;
+ #ifdef _WIN32
++        MigrateDirectory(GetAppDataRoamingDirectory() / SUYU_DIR,
++                         GetAppDataRoamingDirectory() / EDEN_DIR);
+         // User directory takes priority over global %AppData% directory
+         eden_path = GetExeDirectory() / PORTABLE_DIR;
+         if (!Exists(eden_path) || !IsDir(eden_path)) {
+@@ -132,6 +134,12 @@ public:
+         eden_path_cache = eden_path / CACHE_DIR;
+         eden_path_config = eden_path / CONFIG_DIR;
+ #else
++        MigrateDirectory(GetDataDirectory("XDG_DATA_HOME") / SUYU_DIR,
++                         GetDataDirectory("XDG_DATA_HOME") / EDEN_DIR);
++        MigrateDirectory(GetDataDirectory("XDG_CONFIG_HOME") / SUYU_DIR,
++                         GetDataDirectory("XDG_CONFIG_HOME") / EDEN_DIR);
++        MigrateDirectory(GetDataDirectory("XDG_CACHE_HOME") / SUYU_DIR,
++                         GetDataDirectory("XDG_CACHE_HOME") / EDEN_DIR);
+         eden_path = GetCurrentDir() / PORTABLE_DIR;
+         if (!Exists(eden_path) || !IsDir(eden_path)) {
+             eden_path = GetDataDirectory("XDG_DATA_HOME") / EDEN_DIR;
+@@ -182,6 +190,42 @@ public:
+     }
+ 
+ private:
++    void MigrateDirectory(const fs::path& old_path, const fs::path& new_path) {
++        std::error_code error;
++        const bool old_exists = fs::exists(old_path, error);
++        if (error) {
++            LOG_ERROR(Common_Filesystem, "Failed to inspect legacy data directory '{}': {}",
++                      PathToUTF8String(old_path), error.message());
++            return;
++        }
++        if (!old_exists) {
++            return;
++        }
++
++        const bool new_exists = fs::exists(new_path, error);
++        if (error) {
++            LOG_ERROR(Common_Filesystem, "Failed to inspect Shireia data directory '{}': {}",
++                      PathToUTF8String(new_path), error.message());
++            return;
++        }
++        if (new_exists) {
++            LOG_WARNING(Common_Filesystem,
++                        "Both legacy and Shireia data directories exist; keeping both unchanged: "
++                        "'{}' and '{}'",
++                        PathToUTF8String(old_path), PathToUTF8String(new_path));
++            return;
++        }
++
++        fs::rename(old_path, new_path, error);
++        if (error) {
++            LOG_ERROR(Common_Filesystem, "Failed to migrate data directory '{}' to '{}': {}",
++                      PathToUTF8String(old_path), PathToUTF8String(new_path), error.message());
++            return;
++        }
++        LOG_INFO(Common_Filesystem, "Migrated data directory '{}' to '{}'",
++                 PathToUTF8String(old_path), PathToUTF8String(new_path));
++    }
++
+     PathManagerImpl() {
+ #ifndef SUYU_ANDROID_LIBRETRO
+         Reinitialize();
+diff --git a/src/video_core/renderer_opengl/present/fsr.cpp b/src/video_core/renderer_opengl/present/fsr.cpp
+index b764aadae8..55dbe51198 100644
+--- a/src/video_core/renderer_opengl/present/fsr.cpp
++++ b/src/video_core/renderer_opengl/present/fsr.cpp
+@@ -71,8 +71,11 @@ GLuint FSR::Draw(ProgramManager& program_manager, GLuint texture, u32 input_imag
+ 
+     FsrRcasCon(rcas_con.data(), sharpening);
+ 
+-    glProgramUniform4uiv(easu_frag.handle, 0, sizeof(easu_con), easu_con.data());
+-    glProgramUniform4uiv(rcas_frag.handle, 0, sizeof(rcas_con), rcas_con.data());
++    // The count is in uvec4 elements, not bytes.
++    glProgramUniform4uiv(easu_frag.handle, 0, static_cast<GLsizei>(easu_con.size() / 4),
++                        easu_con.data());
++    glProgramUniform4uiv(rcas_frag.handle, 0, static_cast<GLsizei>(rcas_con.size() / 4),
++                        rcas_con.data());
+ 
+     glFrontFace(GL_CW);
+     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer.handle);
+diff --git a/src/video_core/renderer_vulkan/present/layer.cpp b/src/video_core/renderer_vulkan/present/layer.cpp
+index 66696c66b7..bc93e6b0a7 100644
+--- a/src/video_core/renderer_vulkan/present/layer.cpp
++++ b/src/video_core/renderer_vulkan/present/layer.cpp
+@@ -183,9 +183,9 @@ void Layer::RefreshResources(const Device& device, const Tegra::FramebufferConfi
+     raw_width = framebuffer.width;
+     raw_height = framebuffer.height;
+     pixel_format = framebuffer.pixel_format;
+-    anti_alias.emplace<std::monostate>();
+-
+     ReleaseRawImages();
++    // The old AA images may still be referenced by earlier frames.
++    anti_alias.emplace<std::monostate>();
+     CreateStagingBuffer(device, framebuffer);
+     CreateRawImages(device, framebuffer);
+ }
+@@ -196,6 +196,14 @@ void Layer::SetAntiAliasPass(const Device& device) {
+ 
+     anti_alias_setting = filters.get_anti_aliasing();
+ 
++    // AA owns pipelines, descriptors and images for every frame in flight.
++    // Retire all their submissions before replacing (or disabling) the pass.
++    if (!std::holds_alternative<std::monostate>(anti_alias)) {
++        for (const u64 tick : resource_ticks) {
++            scheduler.Wait(tick);
++        }
++    }
++
+     const VkExtent2D render_area{
+         .width = Settings::values.resolution_info.ScaleUp(raw_width),
+         .height = Settings::values.resolution_info.ScaleUp(raw_height),
+diff --git a/src/video_core/renderer_vulkan/vk_blit_screen.cpp b/src/video_core/renderer_vulkan/vk_blit_screen.cpp
+index ce592a6c45..f3a4c1230f 100644
+--- a/src/video_core/renderer_vulkan/vk_blit_screen.cpp
++++ b/src/video_core/renderer_vulkan/vk_blit_screen.cpp
+@@ -93,6 +93,19 @@ void BlitScreen::DrawToFrame(const Device& device, RasterizerVulkan& rasterizer,
+     bool resource_update_required = false;
+     bool presentation_recreate_required = false;
+ 
++    const VkExtent2D window_size{
++        .width = layout.screen.GetWidth(),
++        .height = layout.screen.GetHeight(),
++    };
++    bool layers_recreate_required = false;
++    // Aspect ratio changes resize the upscaler output without resizing the
++    // swapchain. Recreate the layers at the new output size as well.
++    if (layer_size.width != window_size.width || layer_size.height != window_size.height) {
++        resource_update_required = true;
++        layers_recreate_required = true;
++        layer_size = window_size;
++    }
++
+     if (!window_adapt || scaling_filter != filters.get_scaling_filter()) {
+         resource_update_required = true;
+     }
+@@ -121,12 +134,7 @@ void BlitScreen::DrawToFrame(const Device& device, RasterizerVulkan& rasterizer,
+         image_index = 0;
+     }
+ 
+-    const VkExtent2D window_size{
+-        .width = layout.screen.GetWidth(),
+-        .height = layout.screen.GetHeight(),
+-    };
+-
+-    if (layers.size() != framebuffers.size()) {
++    if (layers_recreate_required || layers.size() != framebuffers.size()) {
+         layers.clear();
+         for (size_t i = 0; i < framebuffers.size(); ++i) {
+             layers.emplace_back(device, memory_allocator, scheduler, device_memory, image_count,
+diff --git a/src/video_core/renderer_vulkan/vk_blit_screen.h b/src/video_core/renderer_vulkan/vk_blit_screen.h
+index b0d4e176b7..b2ea2f8826 100644
+--- a/src/video_core/renderer_vulkan/vk_blit_screen.h
++++ b/src/video_core/renderer_vulkan/vk_blit_screen.h
+@@ -78,6 +78,7 @@ private:
+     std::size_t image_count{};
+     std::size_t image_index{};
+     VkFormat swapchain_view_format{};
++    VkExtent2D layer_size{};
+ 
+     Settings::ScalingFilter scaling_filter{};
+     std::unique_ptr<WindowAdaptPass> window_adapt{};

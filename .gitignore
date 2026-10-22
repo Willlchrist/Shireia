@@ -1,0 +1,79 @@
+﻿# Build output and local deployment
+/build/
+/build-*/
+/out/
+/dist/
+/.deps/
+/third_party/suyu/.cache/
+/runtime-data/
+/core-data/
+*.keys
+*.nsp
+*.xci
+*.nca
+*.nro
+*.nso
+*.tik
+*.cert
+*.p12
+*.pfx
+*.pem
+
+# Signing credentials and local Python/compiler leftovers
+**/debug.keystore
+**/*.jks
+*.pyc
+*.pyo
+**/__pycache__/
+*.bak
+
+# Redundant dependency archive/extraction and platform-generated artwork
+/third_party/suyu/externals/spirv-headers-new.zip
+/third_party/suyu/externals/spirv-headers-extract/
+/third_party/suyu/dist/Assets.car
+/third_party/suyu/img/daily-builds.png
+/third_party/suyu/img/maximum-clocks.png
+/third_party/suyu/img/need to fix bugs.png
+
+# Upstream media/doc assets with unconfirmed redistribution terms; retained locally only
+/third_party/suyu/dist/suyu_loading.mp3
+/third_party/suyu/dist/sounds/midnight_tokyo_lofi.mp3
+/third_party/suyu/dist/readme/suyu__Logo-Pill.svg
+/third_party/suyu/externals/dynarmic/externals/fmt/doc/_static/fonts/glyphicons-halflings-regular.*
+
+# Embedded shared-font fallback disabled; Shireia uses user-installed firmware
+/third_party/suyu/src/core/file_sys/system_archive/data/font_*
+/third_party/suyu/src/core/file_sys/system_archive/shared_font.cpp
+/third_party/suyu/src/core/file_sys/system_archive/shared_font.h
+
+# CMake and compiler-generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+.ninja_deps
+.ninja_log
+build.ninja
+
+# Local IDE state
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.VC.db
+CMakeUserPresets.json
+
+# Local runtime output (keep source assets and fixtures)
+/build/**/*.log
+/build/**/*.dmp
+/build/**/*.png
+/build/**/*.json
+/runtime-data/**
+/core-data/**
+# Unreferenced Suyu legacy image variants without file-level provenance
+/third_party/suyu/dist/icons/overlay_dark/*.png
+/third_party/suyu/dist/qt_themes/default/icons/16x16/checked.png
+/third_party/suyu/dist/qt_themes/default/icons/16x16/failed.png
+/third_party/suyu/dist/qt_themes/default/icons/16x16/info.png
+/third_party/suyu/dist/qt_themes/default/icons/16x16/sync.png
